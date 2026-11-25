@@ -76,15 +76,19 @@ class BM25Index:
         query_tf = np.fromiter(counts.values(), dtype=np.float64)
         return np.asarray(self.weights[:, cols] @ query_tf).ravel()
 
-    def search(self, query: str, k: int = 100) -> list[tuple[int, float]]:
-        """Top k (product_id, score), best first. Products with no matching term are not returned.
+    def top_rows(self, s: np.ndarray, k: int = 100) -> np.ndarray:
+        """Row positions of the k best products for score vector s, best first.
 
-        Ties are broken by product_id so results are deterministic.
+        Products with no matching term (score 0) are left out. Ties are
+        broken by product_id so results are deterministic.
         """
-        s = self.scores(query)
         hits = np.flatnonzero(s > 0)
-        order = hits[np.lexsort((self.product_ids[hits], -s[hits]))][:k]
-        return [(int(self.product_ids[i]), float(s[i])) for i in order]
+        return hits[np.lexsort((self.product_ids[hits], -s[hits]))][:k]
+
+    def search(self, query: str, k: int = 100) -> list[tuple[int, float]]:
+        """Top k (product_id, score), best first."""
+        s = self.scores(query)
+        return [(int(self.product_ids[i]), float(s[i])) for i in self.top_rows(s, k)]
 
 
 def main(k: int = 100) -> None:
