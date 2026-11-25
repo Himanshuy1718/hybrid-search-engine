@@ -25,6 +25,8 @@ They are tab-separated despite the `.csv` extension.
 python -m src.data      # data summary
 pytest                  # tests
 python -m src.bm25      # BM25 baseline -> artifacts/runs/bm25.parquet, artifacts/results.csv
+python -m src.dense     # embeds products once (~19 min on a laptop CPU), then dense retrieval
+python -m src.hybrid    # reciprocal rank fusion, weight tuned per fold
 ```
 
 Each stage writes its top-100 run to `artifacts/runs/`, per-query metrics to
@@ -74,6 +76,21 @@ Settings: k1 = 1.2, b = 0.75 (Lucene defaults, not tuned); fields are product
 name, class and description joined; lowercase alphanumeric tokens, no
 stemming or stopword removal.
 
+**Dense retrieval** (`src/dense.py`) embeds "name. class. description" with
+`all-MiniLM-L6-v2` (384 dimensions, max 256 word pieces, so the name and
+class always fit). Vectors are normalised, so FAISS `IndexFlatIP` returns
+exact cosine-similarity neighbours; at 43k products exact search takes a
+few milliseconds, so an approximate index (HNSW, IVF) would add error for no
+gain. Embeddings are cached in `artifacts/embeddings/`.
+
+**Hybrid** (`src/hybrid.py`) uses weighted reciprocal rank fusion,
+`w / (60 + rank_bm25) + (1 - w) / (60 + rank_dense)`. RRF uses ranks only, so
+BM25 scores and cosine similarities never need to share a scale. The weight
+`w` is tuned **per fold on the other four folds** (grid 0.0-1.0), then applied
+to the held-out fold; every fold chose 0.4 or 0.5. The API and demo use the
+weight picked on all scored queries (0.4), stored in
+`artifacts/hybrid_config.json`.
+
 ## Results
 
 Mean over the 379 scored queries; in brackets, the standard deviation of the
@@ -82,12 +99,24 @@ five per-fold means.
 | Stage | NDCG@10 | MRR@10 | Recall@100 |
 |---|---|---|---|
 | BM25 | 0.704 (0.038) | 0.675 (0.058) | 0.620 (0.033) |
-| Dense | | | |
-| Hybrid | | | |
+| Dense | 0.703 (0.019) | 0.621 (0.034) | 0.580 (0.033) |
+| Hybrid (RRF) | **0.753** (0.018) | **0.686** (0.043) | **0.623** (0.045) |
 | Hybrid + LambdaRank | | | |
 
-The re-ranker only reorders the hybrid candidates, so its Recall@100 equals the
-hybrid stage's by design.
+What the numbers say:
+
+- **Hybrid beats BM25** by +0.050 NDCG@10 (95% bootstrap CI +0.035 to
+  +0.065; better on 188 queries, worse on 102; Wilcoxon p = 2e-10).
+- **Dense alone ties BM25** on NDCG@10 (difference -0.001, CI -0.022 to
+  +0.020) but wins on different queries: of 25,470 Exact products, 6,211 are
+  in both top-100s, 3,481 only in BM25's and 2,924 only in dense's. That
+  overlap pattern is why fusion helps.
+- **Dense makes softer mistakes**: its top 10 have fewer Irrelevant products
+  (3% vs 6%) but fewer Exact ones (42% vs 44%). It finds the right kind of
+  product more often than the exact one asked for, hence its lower MRR.
+- Taking the union of both top-100 lists (up to 200 candidates) would find
+  71% of Exact products per query, against 62% for the hybrid's top 100. That
+  is the candidate pool for the re-ranker.
 
 Sanity check: a random ranking scores NDCG@10 0.007. BM25's top 10 are 44%
 Exact, 36% Partial, 6% Irrelevant and 14% unlabelled. NDCG@10 is fairly high
@@ -99,5 +128,6 @@ labelling never looked at (see Limitations).
 ## Limitations
 
 - **Unlabelled products count as irrelevant.** WANDS judges a sample of
-  products per query. A retriever that surfaces good products outside that
-  sample is penalised. This may affect embedding search more than BM25.
+  products per query, so a retriever that surfaces good products outside that
+  sample is penalised. In practice the effect is similar across stages: 14% of
+  BM25's top 10 and 15% of dense's top 10 are unlabelled.
