@@ -34,6 +34,60 @@ python -m src.rerank ablation   # CV score with each feature group removed
 Each stage writes its top-100 run to `artifacts/runs/`, per-query metrics to
 `artifacts/eval/`, and its summary row to `artifacts/results.csv`.
 
+## API and demo
+
+After the pipeline above has produced `artifacts/` (embeddings, fusion
+weight, model):
+
+```powershell
+uvicorn src.api:app --port 8000     # API; http://localhost:8000 opens the interactive docs
+streamlit run app.py                # demo page on http://localhost:8501
+python -m src.latency               # latency benchmark against the running API
+```
+
+`GET /search?q=modern farmhouse dining table&k=5` (mode defaults to `rerank`;
+also `hybrid`, `dense`, `bm25`):
+
+```json
+{
+  "query": "modern farmhouse dining table", "mode": "rerank", "k": 5, "took_ms": 32.45,
+  "timings_ms": {"encode_query": 18.24, "retrieve_and_features": 12.07, "rerank_model": 2.14, "total": 32.45},
+  "results": [
+    {"rank": 1, "product_id": 14115, "name": "modern farmhouse solid wood dining table",
+     "product_class": "Dining Tables", "score": 4.132784, "average_rating": null, "review_count": 0},
+    ...
+  ]
+}
+```
+
+Everything is loaded once at startup (about 30 s); a request does no disk
+I/O. The online code path reuses the offline feature code
+(`CandidateGenerator`), so the model sees identical features in training and
+serving. Online fusion uses a plain-Python RRF (`rrf_fuse_hits`) that a test
+checks is identical to the offline pandas version.
+
+The demo searches with any stage, can show BM25 side by side, and, when the
+query is one of the 480 WANDS queries, colours each result by its human label.
+
+### Latency
+
+Each of the 480 WANDS queries sent once per mode, one request at a time, after
+20 warm-up requests per mode; k = 10; client and server on the same machine
+over HTTP (uvicorn, 1 worker). Hardware: Intel Core i7-12650H laptop CPU
+(10 cores / 16 threads), 16 GB RAM, Windows 11, Python 3.13, no GPU.
+
+| Mode | Mean | p50 | p95 | p99 | Server time (mean) |
+|---|---|---|---|---|---|
+| BM25 | 2.6 ms | 2.4 ms | 4.4 ms | 5.2 ms | 0.7 ms |
+| Dense | 17.9 ms | 17.7 ms | 19.4 ms | 21.1 ms | 14.3 ms |
+| Hybrid (RRF) | 19.2 ms | 18.9 ms | 22.4 ms | 24.7 ms | 15.7 ms |
+| Hybrid + LambdaRank | 24.5 ms | 23.9 ms | 27.5 ms | 30.6 ms | 21.3 ms |
+
+Embedding the query with MiniLM on the CPU is most of the cost (about 13 ms);
+retrieval, features for ~160 candidates and the 174-tree model add about 8 ms.
+These are single-client numbers; throughput under concurrent load was not
+measured.
+
 ## Data notes
 
 - 42,994 products, 480 queries, 233,448 raw labels (Exact 11%, Partial 63%, Irrelevant 26%).

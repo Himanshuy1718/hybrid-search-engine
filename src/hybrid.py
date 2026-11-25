@@ -45,6 +45,21 @@ def rrf_fuse(bm25: pd.DataFrame, dense: pd.DataFrame, w_bm25: float,
     return fused[fused["rank"] <= depth][RUN_COLUMNS].reset_index(drop=True)
 
 
+def rrf_fuse_hits(bm25_hits, dense_hits, w_bm25: float, k: int = RRF_K,
+                  depth: int = 100) -> list[tuple[int, float]]:
+    """Same result as `rrf_fuse` for a single query, without pandas.
+
+    Used online, where pandas' group-by overhead (~8 ms) would dominate.
+    hits: [(product_id, score), ...] best first.
+    """
+    scores: dict[int, float] = {}
+    for hits, weight in ((bm25_hits, w_bm25), (dense_hits, 1.0 - w_bm25)):
+        if weight > 0:
+            for rank, (pid, _) in enumerate(hits, start=1):
+                scores[pid] = scores.get(pid, 0.0) + weight / (k + rank)
+    return sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:depth]
+
+
 def pick_weight(ndcg_by_weight: pd.DataFrame, train_ids) -> float:
     """Weight with the best mean NDCG@10 on the training queries only.
 

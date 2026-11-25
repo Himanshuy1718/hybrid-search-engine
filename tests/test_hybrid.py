@@ -1,7 +1,8 @@
+import numpy as np
 import pandas as pd
 import pytest
 
-from src.hybrid import cross_validated_hybrid, pick_weight, rrf_fuse
+from src.hybrid import cross_validated_hybrid, pick_weight, rrf_fuse, rrf_fuse_hits
 
 
 def run_of(query_id, product_ids):
@@ -32,6 +33,17 @@ def test_weight_one_is_pure_bm25_and_zero_is_pure_dense():
 def test_depth_cuts_each_query():
     fused = rrf_fuse(BM25, DENSE, w_bm25=0.5, depth=2)
     assert fused["product_id"].tolist() == [2, 1]
+
+
+@pytest.mark.parametrize("w", [0.0, 0.4, 0.5, 1.0])
+def test_online_fusion_matches_offline_fusion_exactly(w):
+    rng = np.random.default_rng(int(w * 10))
+    bm25_ids = rng.choice(300, 100, replace=False).tolist()
+    dense_ids = rng.choice(300, 100, replace=False).tolist()
+    offline = rrf_fuse(run_of(0, bm25_ids), run_of(0, dense_ids), w, depth=50)
+    online = rrf_fuse_hits([(p, 0.0) for p in bm25_ids], [(p, 0.0) for p in dense_ids], w, depth=50)
+    assert [p for p, _ in online] == offline["product_id"].tolist()
+    assert [s for _, s in online] == offline["score"].tolist()
 
 
 def test_pick_weight_uses_training_queries_only():
