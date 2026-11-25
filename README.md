@@ -24,7 +24,11 @@ They are tab-separated despite the `.csv` extension.
 ```powershell
 python -m src.data      # data summary
 pytest                  # tests
+python -m src.bm25      # BM25 baseline -> artifacts/runs/bm25.parquet, artifacts/results.csv
 ```
+
+Each stage writes its top-100 run to `artifacts/runs/`, per-query metrics to
+`artifacts/eval/`, and its summary row to `artifacts/results.csv`.
 
 ## Data notes
 
@@ -56,16 +60,44 @@ These are fixed before any model is built and apply to every stage.
 | Splits | 5-fold cross-validation **by query**, never by query-product pair, so no test query is seen in training. Folds are fixed with a seed (`src/data.py`) and cover all 480 queries. |
 | Tuning | Fusion weights and model parameters are tuned on training folds only. |
 
+## Design choices
+
+**BM25 is implemented directly** (`src/bm25.py`) instead of with the
+`rank-bm25` package. That package's IDF goes negative for words in more than
+half the documents and is then floored to a constant, so a filler word in 90%
+of products ("the", "with") gets *more* weight than a real word in 50%. The
+implementation here uses the Lucene/Elasticsearch IDF,
+`ln(1 + (N - n + 0.5) / (n + 0.5))`, which is always positive and always
+favours rarer words. It precomputes a sparse product-by-term weight matrix,
+so a query is a sum of a few columns (about 1.5 ms per query on CPU).
+Settings: k1 = 1.2, b = 0.75 (Lucene defaults, not tuned); fields are product
+name, class and description joined; lowercase alphanumeric tokens, no
+stemming or stopword removal.
+
 ## Results
 
-_Filled in from the runs as each phase is completed._
+Mean over the 379 scored queries; in brackets, the standard deviation of the
+five per-fold means.
 
 | Stage | NDCG@10 | MRR@10 | Recall@100 |
 |---|---|---|---|
-| BM25 | | | |
+| BM25 | 0.704 (0.038) | 0.675 (0.058) | 0.620 (0.033) |
 | Dense | | | |
 | Hybrid | | | |
 | Hybrid + LambdaRank | | | |
 
 The re-ranker only reorders the hybrid candidates, so its Recall@100 equals the
 hybrid stage's by design.
+
+Sanity check: a random ranking scores NDCG@10 0.007. BM25's top 10 are 44%
+Exact, 36% Partial, 6% Irrelevant and 14% unlabelled. NDCG@10 is fairly high
+partly because Partial products earn gain 1, and they make up most labels.
+The 14% unlabelled results count as 0; if some are actually relevant, every
+stage is under-scored, most of all a stage that finds products the original
+labelling never looked at (see Limitations).
+
+## Limitations
+
+- **Unlabelled products count as irrelevant.** WANDS judges a sample of
+  products per query. A retriever that surfaces good products outside that
+  sample is penalised. This may affect embedding search more than BM25.
