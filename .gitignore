@@ -1,0 +1,15 @@
+# Data and generated artifacts (re-created by the pipeline)
+data/
+artifacts/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
