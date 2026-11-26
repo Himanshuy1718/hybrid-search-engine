@@ -1,5 +1,8 @@
 # Hybrid Semantic Search and Ranking Engine
 
+**Live demo: https://hybrid-search-engine-yiyeyak88hsdetz2qx5s7q.streamlit.app/**
+(the app sleeps when idle; the first visit may take a minute to wake it)
+
 A two-stage product search system on the [WANDS](https://github.com/wayfair/WANDS)
 dataset (Wayfair: 42,994 products, 480 queries, 233k human relevance labels).
 Keyword search (BM25) and embedding search (MiniLM + FAISS) retrieve
