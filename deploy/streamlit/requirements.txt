@@ -1,0 +1,18 @@
+# Streamlit Community Cloud only (Linux x86_64). Local and Docker installs use
+# the root requirements.txt. Same versions, minus the API/test packages.
+#
+# CPU-only PyTorch wheels: the default Linux wheel on PyPI pulls in ~2 GB of
+# CUDA libraries. One line per Python version Community Cloud may run.
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl ; python_version == "3.12"
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp313-cp313-manylinux_2_28_x86_64.whl ; python_version == "3.13"
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl ; python_version == "3.14"
+pandas==3.1.1
+numpy==2.5.5
+scipy==1.18.1
+pyarrow==26.0.1
+scikit-learn==1.9.1
+sentence-transformers==6.3.0
+faiss-cpu==1.16.0
+lightgbm==4.7.0
+streamlit==1.67.0
+huggingface-hub==2.4.0

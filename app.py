@@ -25,8 +25,12 @@ LABEL_COLOURS = {"Exact": "#c8e6c9", "Partial": "#fff3c4", "Irrelevant": "#ffcdd
 st.set_page_config(page_title="Hybrid product search", layout="wide")
 
 
-@st.cache_resource(show_spinner="Loading indexes and models (about 30 seconds, first run only)...")
+@st.cache_resource(show_spinner="Loading indexes and models (about 30 seconds; a fresh server "
+                                "first downloads the data and trained files, 1-2 minutes)...")
 def get_engine() -> SearchEngine:
+    from src.cloud_setup import ensure_ready
+
+    ensure_ready()  # no-op when data/ and artifacts/ already exist
     return SearchEngine.load()
 
 

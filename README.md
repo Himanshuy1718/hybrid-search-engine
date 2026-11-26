@@ -38,6 +38,31 @@ docker run --rm -p 8501:8501 hybrid-search demo     # demo -> http://localhost:8
 
 If port 8000 is taken, map another host port, for example `-p 8001:8000`.
 
+## Deployment
+
+**Streamlit Community Cloud (free).** The demo runs from
+`deploy/streamlit/streamlit_app.py`. Community Cloud installs
+`deploy/streamlit/requirements.txt` (the same pins as the main requirements,
+minus the API and test packages, with CPU-only PyTorch wheels for Python
+3.12-3.14) and `packages.txt` (`libgomp1` for LightGBM). The repository holds
+no data or trained files, so on first start `src/cloud_setup.py` downloads
+WANDS (pinned commit, SHA-256 checked) and the trained artifacts from a pinned
+revision of
+[Himanshuy18/hybrid-search-artifacts](https://huggingface.co/Himanshuy18/hybrid-search-artifacts),
+then loads as usual. Tested in a clean Debian 11 / Python 3.13 container that
+installs with `uv` and starts with no data: it fetched the data and trained
+files in about 30 seconds, then the MiniLM model, and served searches using
+about 750 MB of memory.
+
+To deploy a copy: share.streamlit.io -> Create app -> this repository, branch
+`main`, main file `deploy/streamlit/streamlit_app.py`, and under Advanced
+settings choose Python 3.13. Trained files are published with
+`python scripts/publish_artifacts.py`.
+
+**Hugging Face Docker Space.** `deploy/huggingface/` and
+`scripts/deploy_hf_space.py` deploy the same demo as a Docker Space (tested
+locally). Hugging Face now requires a PRO subscription for Docker Spaces.
+
 ## Local setup
 
 Python 3.13 (tested on Windows 11 and, in Docker, Debian).
@@ -49,7 +74,7 @@ pip install -r requirements.txt
 
 python -m src.download          # WANDS CSVs from a pinned commit into data/, SHA-256 checked
 python -m src.data              # data summary
-pytest                          # 81 tests
+pytest                          # 85 tests
 python -m src.bm25              # BM25 baseline
 python -m src.dense             # embeds products once (9-19 min on a laptop CPU), then dense retrieval
 python -m src.hybrid            # reciprocal rank fusion, weight tuned per fold
@@ -404,7 +429,13 @@ src/
   api.py         FastAPI service
   latency.py     latency benchmark
   serve.py       container entry point (api | demo | health)
+  cloud_setup.py downloads data and trained files on a fresh deployment
 app.py           Streamlit demo
-tests/           81 unit tests (metrics, BM25, fusion, features, leakage, API)
+deploy/
+  streamlit/     Streamlit Community Cloud entry point and requirements
+  huggingface/   Hugging Face Docker Space Dockerfile and card
+scripts/         publish_artifacts.py, deploy_hf_space.py
+tests/           85 unit tests (metrics, BM25, fusion, features, leakage, API, deployment)
 Dockerfile       multi-stage build: test -> pipeline -> final image
+packages.txt     Debian packages for Streamlit Community Cloud
 ```

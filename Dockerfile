@@ -31,6 +31,7 @@ RUN pip install -r requirements.txt
 # ---- test: unit tests must pass for the image to build -----------------------
 FROM base AS test
 COPY pyproject.toml ./
+COPY deploy/streamlit/requirements.txt deploy/streamlit/requirements.txt
 COPY src/ src/
 COPY tests/ tests/
 RUN python -m pytest -q && touch /tmp/tests-passed
