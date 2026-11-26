@@ -1,0 +1,9 @@
+# The image builds data and artifacts itself, so local copies are never sent.
+.git
+.venv
+.claude
+data
+artifacts
+**/__pycache__
+**/*.pyc
+.pytest_cache

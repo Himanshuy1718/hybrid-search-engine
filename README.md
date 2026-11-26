@@ -17,11 +17,8 @@ py -3.13 -m venv .venv
 pip install -r requirements.txt
 ```
 
-Download `product.csv`, `query.csv` and `label.csv` from
-`https://github.com/wayfair/WANDS/tree/main/dataset` into `data/`.
-They are tab-separated despite the `.csv` extension.
-
 ```powershell
+python -m src.download  # WANDS CSVs from a pinned commit into data/, SHA-256 checked
 python -m src.data      # data summary
 pytest                  # tests
 python -m src.bm25      # BM25 baseline -> artifacts/runs/bm25.parquet, artifacts/results.csv
@@ -88,9 +85,65 @@ retrieval, features for ~160 candidates and the 174-tree model add about 8 ms.
 These are single-client numbers; throughput under concurrent load was not
 measured.
 
+## Docker
+
+On a machine with only Git and Docker:
+
+```bash
+git clone https://github.com/Himanshuy1718/hybrid-search-engine.git
+cd hybrid-search-engine
+docker build -t hybrid-search .
+docker run --rm -p 8000:8000 hybrid-search          # API  -> http://localhost:8000
+docker run --rm -p 8501:8501 hybrid-search demo     # demo -> http://localhost:8501
+```
+
+(If port 8000 is taken, map another host port: `-p 8001:8000`.)
+
+The build needs nothing from the local machine: `.dockerignore` excludes
+`data/` and `artifacts/`, and the image rebuilds them itself. The first build
+took about 15 minutes on the laptop below, about 9 of them embedding the
+catalogue. Stages:
+
+1. **base**: `python:3.13-slim` pinned by digest, CPU-only PyTorch (the
+   default Linux wheel adds ~2 GB of CUDA libraries), pinned requirements.
+2. **test**: the unit tests run and must pass, or the image is not built.
+3. **pipeline**: downloads WANDS from a pinned commit and checks SHA-256
+   hashes, downloads the model, then runs BM25 -> dense -> hybrid -> re-ranker.
+   Only offline modules are copied in, so editing the API or demo never
+   re-runs the pipeline.
+4. **final**: data, embeddings, model, fusion weight and code. Runs as a
+   non-root user, never contacts Hugging Face (`HF_HUB_OFFLINE=1`), and has a
+   health check for either the API or the demo.
+
+The image is about 2.3 GB of layers, mostly PyTorch (0.8 GB) and the
+scientific Python stack.
+
+**Results reproduce on Linux.** The build log prints the results table. BM25,
+dense and hybrid match the Windows run to all four decimals. The re-ranker
+scores NDCG@10 0.783 in the image vs 0.786 on Windows: the Linux and Windows
+PyTorch builds produce embeddings that differ by at most 2e-7 (float32
+rounding, in 93% of values). That changes no dense ranking, but it shifts the
+cosine feature's histogram bins in LightGBM enough to change the trees chosen
+per fold. The 0.003 gap is well inside the fold-to-fold spread (0.024).
+
+**Thread limits matter in containers.** With default settings, PyTorch,
+FAISS and LightGBM each start 8-16 threads, and in Docker Desktop's VM waking
+them for one small query cost more than the work: re-ranked search took 116 ms
+mean. The image sets `OMP_NUM_THREADS=2` (measured against 1, 2 and 4):
+
+| Mode (in Docker) | Mean | p50 | p95 | p99 |
+|---|---|---|---|---|
+| BM25 | 3.5 ms | 3.2 ms | 5.3 ms | 6.2 ms |
+| Dense | 17.9 ms | 17.7 ms | 19.7 ms | 20.9 ms |
+| Hybrid (RRF) | 19.1 ms | 18.9 ms | 22.3 ms | 24.2 ms |
+| Hybrid + LambdaRank | 25.5 ms | 24.7 ms | 30.9 ms | 34.7 ms |
+
+Same method as the native table; Docker Desktop (WSL 2) on the same laptop.
+
 ## Data notes
 
 - 42,994 products, 480 queries, 233,448 raw labels (Exact 11%, Partial 63%, Irrelevant 26%).
+  The files are tab-separated despite the `.csv` extension.
 - 1,467 (query, product) pairs are labelled more than once; only 14 disagree.
   Resolved by majority vote, ties to the lower gain -> 231,873 labels.
 - 101 queries have no Exact product, so 379 queries are scored. All 480 are
